@@ -20,6 +20,12 @@ function App() {
   const [adUrl, setAdUrl] = useState('');
   const [showAd, setShowAd] = useState(false);
   const [adError, setAdError] = useState('');
+  const [showAddSite, setShowAddSite] = useState(false);
+  const [siteName, setSiteName] = useState('');
+  const [siteUrl, setSiteUrl] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [savingSite, setSavingSite] = useState(false);
+  const [siteMessage, setSiteMessage] = useState('');
 
   async function loadSites() {
     setLoading(true); setError('');
@@ -33,6 +39,18 @@ function App() {
       setError(e.message || 'API unavailable. Run the project on Vercel with storage configured.');
     } finally { setLoading(false); setLastRefresh(new Date()); }
   }
+  async function addSite(e) {
+    e.preventDefault(); setSavingSite(true); setSiteMessage(''); setError('');
+    try {
+      const r = await fetch('/api/admin/sites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: siteName, url: siteUrl, password: adminPassword }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Could not add website');
+      setSiteMessage('Website added successfully.'); setSiteName(''); setSiteUrl(''); setAdminPassword(''); setShowAddSite(false);
+      await loadSites();
+    } catch (e) { setSiteMessage(e.message || 'Could not add website.'); }
+    finally { setSavingSite(false); }
+  }
+
   async function runCheck() {
     setChecking(true); setError('');
     try {
@@ -84,9 +102,19 @@ function App() {
         <Stat icon={<XCircle/>} label="OFFLINE" value={down} detail={down ? 'Needs attention' : 'No known incidents'} tone="red"/>
         <Stat icon={<Clock3/>} label="AVG. RESPONSE" value={avg === null ? '—' : `${avg} ms`} detail="Across online sites" tone="gold"/>
       </div>
+      <section className="panel add-site-panel">
+        <div className="panel-head"><div><h3>Admin · Add a website</h3><p>Register a site directly from this dashboard using your admin password.</p></div><button className="primary-btn" type="button" onClick={() => { setShowAddSite(v => !v); setSiteMessage(''); }}><Plus size={15}/>{showAddSite ? 'Close' : 'Add website'}</button></div>
+        {showAddSite && <form className="admin-site-form" onSubmit={addSite}>
+          <label htmlFor="site-name">Website name</label><input id="site-name" value={siteName} onChange={e => setSiteName(e.target.value)} placeholder="TEDDY-XMD Pairing" maxLength={100} required/>
+          <label htmlFor="site-url">Website URL</label><input id="site-url" type="url" value={siteUrl} onChange={e => setSiteUrl(e.target.value)} placeholder="https://example.com" required/>
+          <label htmlFor="admin-password">Admin password</label><input id="admin-password" type="password" autoComplete="current-password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)} placeholder="Enter admin password" required/>
+          <button className="primary-btn" type="submit" disabled={savingSite}><Plus size={15}/>{savingSite ? 'Saving website…' : 'Save website'}</button>
+        </form>}
+        {siteMessage && <p className={siteMessage.includes('successfully') ? 'field-success' : 'field-error'} role="status">{siteMessage}</p>}
+      </section>
       <section className="panel sites-panel">
         <div className="panel-head"><div><h3>Monitored websites</h3><p>Uptime status and latest response checks</p></div><span className="count-pill">{sites.length} SITES</span></div>
-        {loading ? <div className="empty"><LoaderCircle className="spin" size={25}/><p>Loading monitored sites…</p></div> : sites.length === 0 ? <div className="empty"><div className="empty-icon"><Globe2 size={23}/></div><h4>No monitored sites yet</h4><p>Connect storage and seed sites to begin. Public users cannot add or remove URLs.</p><button className="subtle-btn" onClick={() => setError('Add sites to the autoping:sites key in your KV database, or implement authenticated admin endpoints before accepting URLs.')}>How to add sites <ArrowUpRight size={15}/></button></div> :
+        {loading ? <div className="empty"><LoaderCircle className="spin" size={25}/><p>Loading monitored sites…</p></div> : sites.length === 0 ? <div className="empty"><div className="empty-icon"><Globe2 size={23}/></div><h4>No monitored sites yet</h4><p>Add your first website using the password-protected admin panel above.</p><button className="subtle-btn" onClick={() => setShowAddSite(true)}>Add a website <ArrowUpRight size={15}/></button></div> :
           <div className="site-list">{sites.map(s => <div className="site-row" key={s.id}><div className={`site-favicon ${s.status}`}><Globe2 size={18}/></div><div className="site-details"><b>{s.name}</b><a href={s.url} target="_blank" rel="noreferrer">{s.url} <ExternalLink size={11}/></a></div><div className="site-latency">{s.latencyMs == null ? '—' : `${s.latencyMs} ms`}<small>{s.lastCheck ? new Date(s.lastCheck).toLocaleTimeString() : 'Not checked'}</small></div><Status status={s.status}/></div>)}</div>}
         <div className="panel-foot"><span><span className="live-dot"/> Auto-refresh enabled</span><span>Checks scheduled externally</span></div>
       </section>
