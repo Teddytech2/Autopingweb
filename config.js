@@ -13,9 +13,12 @@ export const config = Object.freeze({
     database: process.env.MONGODB_DB || 'teddy_autoping'
   }),
 
-  // External cron authentication
+  // External cron and dashboard admin authentication
   cron: Object.freeze({
     secret: process.env.CRON_SECRET || ''
+  }),
+  admin: Object.freeze({
+    password: process.env.ADMIN_PASSWORD || 'teddy'
   }),
 
   // Monitor settings
