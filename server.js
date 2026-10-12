@@ -13,6 +13,7 @@ const PORT = config.port;
 const MONGODB_URI = config.mongodb.uri;
 const MONGODB_DB = config.mongodb.database;
 const CRON_SECRET = config.cron.secret;
+const ADMIN_PASSWORD = config.admin.password;
 const MAX_SITES = config.monitoring.maxSitesPerRun;
 const HISTORY_LIMIT = config.monitoring.historyLimit;
 const REQUEST_TIMEOUT_MS = config.monitoring.requestTimeoutMs;
@@ -59,13 +60,18 @@ function validHttpUrl(raw) {
   } catch { return null; }
 }
 
+function secretMatches(supplied, expected) {
+  if (!expected || typeof supplied !== 'string') return false;
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function cronAuthorized(req) {
   if (!CRON_SECRET) return false;
   const auth = req.get('authorization') || '';
   const supplied = req.get('x-cron-secret') || (auth.startsWith('Bearer ') ? auth.slice(7) : '');
-  const a = Buffer.from(supplied);
-  const b = Buffer.from(CRON_SECRET);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return secretMatches(supplied, CRON_SECRET);
 }
 
 async function pingSite(site) {
@@ -143,6 +149,43 @@ app.get('/api/history', async (req, res) => {
     res.json({ history });
   } catch {
     res.status(503).json({ error: 'MongoDB is not configured or is unavailable.' });
+  }
+});
+
+
+
+// Password-protected website registration. The password is checked server-side
+// on every submission and is never stored in the browser or database.
+app.post('/api/admin/sites', async (req, res) => {
+  if (!ADMIN_PASSWORD) return res.status(503).json({ error: 'Admin password is not configured. Set ADMIN_PASSWORD in Railway Variables.' });
+  if (!secretMatches(req.body?.password, ADMIN_PASSWORD)) {
+    return res.status(401).json({ error: 'Incorrect admin password.' });
+  }
+  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+  const rawUrl = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
+  const parsed = validHttpUrl(rawUrl);
+  if (!name || name.length > 100) return res.status(400).json({ error: 'Website name is required (maximum 100 characters).' });
+  if (!parsed) return res.status(400).json({ error: 'Enter a valid public HTTP or HTTPS website URL.' });
+  try {
+    const database = await connectMongo();
+    const id = randomUUID();
+    const site = {
+      id,
+      name,
+      url: parsed.toString(),
+      createdAt: new Date(),
+      lastCheck: null,
+      status: 'unknown',
+      latencyMs: null,
+      statusCode: null,
+      enabled: true
+    };
+    await database.collection('sites').insertOne(site);
+    res.status(201).json({ ok: true, site: { id, name, url: site.url, createdAt: site.createdAt, lastCheck: null, status: 'unknown', latencyMs: null, statusCode: null } });
+  } catch (e) {
+    if (e?.code === 11000) return res.status(409).json({ error: 'This website is already registered.' });
+    console.error('Website registration failed:', e?.message || e);
+    res.status(503).json({ error: 'Could not save website. Check MongoDB connectivity.' });
   }
 });
 
